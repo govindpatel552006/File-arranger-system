@@ -1,19 +1,27 @@
 import os
 import shutil
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from typing import List
 
 app = FastAPI()
 
+# ✅ CORS FIX (no trailing slash)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://file-arranger-system-79ts.vercel.app/"],
+    allow_origins=["https://file-arranger-system-64v5u25q7.vercel.app/"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configuration for sorting
+# Folder where uploaded files will be stored
+UPLOAD_DIR = "uploads"
+
+if not os.path.exists(UPLOAD_DIR):
+    os.makedirs(UPLOAD_DIR)
+
+# File categories
 CATEGORIES = {
     "Images": [".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg"],
     "Videos": [".mp4", ".mkv", ".mov", ".avi", ".wmv"],
@@ -24,58 +32,82 @@ CATEGORIES = {
     "Music": [".mp3", ".wav", ".aac"]
 }
 
-class PathRequest(BaseModel):
-    path: str
+# ✅ 1️⃣ Upload Files API
+@app.post("/upload")
+async def upload_files(files: List[UploadFile] = File(...)):
+    uploaded_files = []
 
-@app.post("/organize-in-place")
-async def organize_in_place(request: PathRequest):
-    folder_path = request.path.strip().strip('"') # Remove quotes if user copied as path
-    
-    if not os.path.exists(folder_path):
-        raise HTTPException(status_code=404, detail="Path not found. Please check the address.")
-    
-    if not os.path.isdir(folder_path):
-        raise HTTPException(status_code=400, detail="This is a file path. Please provide a FOLDER path.")
+    for file in files:
+        file_path = os.path.join(UPLOAD_DIR, file.filename)
 
-    # Get all files inside the folder
-    files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        uploaded_files.append(file.filename)
+
+    return {
+        "message": "Files uploaded successfully",
+        "files": uploaded_files
+    }
+
+# ✅ 2️⃣ Preview Files API
+@app.get("/preview")
+async def preview_files():
+    files = os.listdir(UPLOAD_DIR)
+    return {"files": files}
+
+# ✅ 3️⃣ Organize Files API
+@app.post("/organize")
+async def organize_files():
+    files = os.listdir(UPLOAD_DIR)
     
     if not files:
-        return ["Folder is empty or already organized."]
+        return {"message": "No files to organize"}
 
     logs = []
+
     for filename in files:
+        source_path = os.path.join(UPLOAD_DIR, filename)
+
+        if not os.path.isfile(source_path):
+            continue
+
         ext = os.path.splitext(filename)[1].lower()
-        source_path = os.path.join(folder_path, filename)
-        
-        # Decide category
-        target_folder_name = "Others"
+
+        # Find category
+        category = "Others"
         for cat, extensions in CATEGORIES.items():
             if ext in extensions:
-                target_folder_name = cat
+                category = cat
                 break
-        
-        # Create the sub-folder INSIDE the selected folder
-        target_dir = os.path.join(folder_path, target_folder_name)
+
+        target_dir = os.path.join(UPLOAD_DIR, category)
+
         if not os.path.exists(target_dir):
             os.makedirs(target_dir)
-        
-        # Move file
+
         dest_path = os.path.join(target_dir, filename)
-        
-        # Avoid overwriting if file already exists
+
+        # Avoid overwrite
         if os.path.exists(dest_path):
             name, extension = os.path.splitext(filename)
             dest_path = os.path.join(target_dir, f"{name}_new{extension}")
 
         try:
             shutil.move(source_path, dest_path)
-            logs.append(f"✓ {filename} → {target_folder_name}/")
+            logs.append(f"✓ {filename} → {category}/")
         except Exception as e:
-            logs.append(f"✗ Failed {filename}: {str(e)}")
+            logs.append(f"✗ {filename}: {str(e)}")
 
-    return logs
+    return {"logs": logs}
 
+# ✅ Root API (for testing)
+@app.get("/")
+async def root():
+    return {"message": "Backend is running 🚀"}
+
+# ✅ For local run
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
