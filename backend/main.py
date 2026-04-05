@@ -9,7 +9,7 @@ app = FastAPI()
 # ✅ CORS FIX (no trailing slash)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://file-arranger-system-64v5u25q7.vercel.app/"],
+    allow_origins=["https://file-arranger-system-64v5u25q7.vercel.app"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
